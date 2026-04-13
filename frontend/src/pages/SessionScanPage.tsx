@@ -642,6 +642,7 @@ export default function SessionScanPage() {
                   title="Apunte al código de barras o matriz de datos del producto"
                   active={camGtin}
                   onScan={onGtinScan}
+                  onClose={() => setCamGtin(false)}
                 />
               )}
             </>
@@ -718,6 +719,7 @@ export default function SessionScanPage() {
                   title="Apunte al código del RFID (hex 24)"
                   active={camRfid}
                   onScan={onRfidScan}
+                  onClose={() => setCamRfid(false)}
                 />
               )}
             </>

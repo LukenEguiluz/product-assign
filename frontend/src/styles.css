@@ -502,6 +502,106 @@ textarea {
   min-height: min(42dvh, 400px);
 }
 
+/* Cámara a pantalla completa (móvil): portal a body, evita recortes del layout */
+.scanner-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding:
+    env(safe-area-inset-top, 0px)
+    env(safe-area-inset-right, 0px)
+    env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
+  background: #000;
+}
+
+.scanner-fullscreen__video-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.scanner-fullscreen__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  background: #000;
+}
+
+.scanner-fullscreen__overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.65rem 0.85rem max(0.85rem, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  background: linear-gradient(transparent, rgb(0 0 0 / 0.9));
+  pointer-events: none;
+}
+
+.scanner-fullscreen__overlay > * {
+  pointer-events: auto;
+}
+
+.scanner-fullscreen__close {
+  align-self: flex-start;
+  min-height: 48px;
+  padding: 0.55rem 1.1rem;
+  font-size: 1rem;
+  font-weight: 700;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 0.96);
+  color: var(--color-text);
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+
+.scanner-fullscreen__close:active {
+  transform: scale(0.98);
+}
+
+.scanner-fullscreen__title {
+  margin: 0;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.scanner-fullscreen__hint {
+  margin: 0;
+  color: rgb(255 255 255 / 0.82);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.scanner-fullscreen__status {
+  margin: 0;
+  color: rgb(167 243 208);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.scanner-fullscreen__error {
+  margin: 0;
+  padding: 0.5rem 0.55rem;
+  border-radius: var(--radius-sm);
+  background: rgb(180 35 24 / 0.35);
+  border: 1px solid rgb(252 165 165 / 0.45);
+  color: #fecaca;
+  font-size: 0.88rem;
+}
+
 /* Modales: respetan safe area y scroll interno */
 .modal-backdrop {
   position: fixed;

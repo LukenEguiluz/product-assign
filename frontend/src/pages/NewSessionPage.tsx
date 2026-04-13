@@ -163,6 +163,7 @@ export default function NewSessionPage() {
               setDeliveryNumber(t);
               setCamDlv(false);
             }}
+            onClose={() => setCamDlv(false)}
           />
         )}
 

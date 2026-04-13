@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { DecodeHintType, NotFoundException } from "@zxing/library";
 
@@ -7,6 +8,8 @@ type ScanProfile = "barcode" | "general";
 type Props = {
   title: string;
   onScan: (text: string) => void;
+  /** Cierra el modo cámara (p. ej. setCamX(false)). */
+  onClose: () => void;
   active: boolean;
   scanProfile?: ScanProfile;
 };
@@ -49,21 +52,99 @@ const NATIVE_FORMATS_GENERAL = [
   "codabar",
 ] as const;
 
-function pickVideoTrackConstraints(
+/** Prioriza cámara trasera por etiqueta (tras permiso suelen venir nombres). */
+function pickRearVideoTrackConstraints(
   devices: MediaDeviceInfo[],
 ): MediaTrackConstraints {
   if (devices.length === 0) {
-    return { facingMode: "user" };
+    return { facingMode: { ideal: "environment" } };
   }
   if (devices.length === 1) {
     return { deviceId: { ideal: devices[0].deviceId } };
   }
-  const back = devices.find((d) => /back|rear|environment|trasera/i.test(d.label));
+  const back = devices.find((d) =>
+    /back|rear|environment|trasera|wide|world/i.test(d.label),
+  );
   if (back) {
     return { deviceId: { ideal: back.deviceId } };
   }
+  const notFront = devices.find(
+    (d) =>
+      !/front|user|selfie|face|personal|facetime|ir\b|infrared|depth|3d/i.test(
+        d.label,
+      ),
+  );
+  if (notFront) {
+    return { deviceId: { ideal: notFront.deviceId } };
+  }
   const notIr = devices.find((d) => !/ir\b|infrared|depth|3d/i.test(d.label));
-  return { deviceId: { ideal: (notIr ?? devices[0]).deviceId } };
+  return { deviceId: { ideal: (notIr ?? devices[devices.length - 1]).deviceId } };
+}
+
+async function acquireRearCameraStream(): Promise<MediaStream> {
+  const videoBase: MediaTrackConstraints = {
+    width: { ideal: 1920, max: 3840 },
+    height: { ideal: 1080, max: 2160 },
+    frameRate: { ideal: 30, max: 30 },
+  };
+
+  const attempts: MediaStreamConstraints[] = [
+    {
+      audio: false,
+      video: { ...videoBase, facingMode: { ideal: "environment" } },
+    },
+    { audio: false, video: { ...videoBase, facingMode: "environment" } },
+    { audio: false, video: { facingMode: { ideal: "environment" } } },
+    { audio: false, video: { facingMode: "environment" } },
+  ];
+
+  for (const c of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(c);
+    } catch {
+      /* siguiente estrategia */
+    }
+  }
+
+  let devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+    (d) => d.kind === "videoinput",
+  );
+
+  if (devices.length && devices.every((d) => !d.label)) {
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: "environment" } },
+      });
+      tmp.getTracks().forEach((t) => t.stop());
+      devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+        (d) => d.kind === "videoinput",
+      );
+    } catch {
+      /* seguir con la lista que haya */
+    }
+  }
+
+  const vt = pickRearVideoTrackConstraints(devices);
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { ...videoBase, ...vt },
+    });
+  } catch {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: vt,
+      });
+    } catch {
+      /* Último recurso (p. ej. portátil sin trasera): frontal. */
+      return await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { ...videoBase, facingMode: "user" },
+      });
+    }
+  }
 }
 
 async function waitVideoReady(video: HTMLVideoElement): Promise<void> {
@@ -127,6 +208,7 @@ async function createNativeDetector(
 export default function CameraScanner({
   title,
   onScan,
+  onClose,
   active,
   scanProfile = "general",
 }: Props) {
@@ -141,6 +223,15 @@ export default function CameraScanner({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!active) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [active]);
+
+  useLayoutEffect(() => {
     if (!active) return;
 
     const video = videoRef.current;
@@ -177,28 +268,13 @@ export default function CameraScanner({
       setRunning(false);
 
       try {
-        const devices = (await navigator.mediaDevices.enumerateDevices()).filter(
-          (d) => d.kind === "videoinput",
-        );
-        const base = pickVideoTrackConstraints(devices);
-        const constraints: MediaStreamConstraints = {
-          audio: false,
-          video: {
-            ...base,
-            width: { min: 480, ideal: 1280, max: 1920 },
-            height: { min: 360, ideal: 720, max: 1080 },
-            frameRate: { ideal: 30, max: 30 },
-          },
-        };
-
         let stream: MediaStream;
         try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          stream = await acquireRearCameraStream();
         } catch {
           stream = await navigator.mediaDevices.getUserMedia({
             audio: false,
             video: {
-              facingMode: "user",
               width: { ideal: 1280 },
               height: { ideal: 720 },
             },
@@ -334,33 +410,57 @@ export default function CameraScanner({
 
   if (!active) return null;
 
-  return (
+  const overlay = (
     <div
-      className={
-        scanProfile === "barcode" ? "stack scanner-wrap--barcode" : "stack"
-      }
+      className="scanner-fullscreen"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
     >
-      <div className="muted">{title}</div>
-      <div className="muted" style={{ fontSize: "0.88rem", lineHeight: 1.45 }}>
-        {globalThis.BarcodeDetector
-          ? "Modo nativo (Chrome/Edge): acerque el código; al leerlo se rellena el campo."
-          : "Modo ZXing: buena luz, código nítido y horizontal si es de barras."}
-      </div>
-      <div className="scanner-box--video">
+      <div className="scanner-fullscreen__video-wrap">
         <video
           ref={videoRef}
-          className="scanner-video"
+          className="scanner-fullscreen__video"
           muted
           playsInline
           autoPlay
         />
-      </div>
-      {running && (
-        <div className="muted">
-          Escaneando… mantenga el código centrado y enfocado.
+        <div className="scanner-fullscreen__overlay">
+          <button
+            type="button"
+            className="scanner-fullscreen__close"
+            onClick={() => {
+              try {
+                stopRef.current?.();
+              } catch {
+                /* ignore */
+              }
+              stopRef.current = null;
+              const v = videoRef.current;
+              if (v?.srcObject) {
+                (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+                v.srcObject = null;
+              }
+              setRunning(false);
+              onClose();
+            }}
+          >
+            Cerrar cámara
+          </button>
+          <p className="scanner-fullscreen__title">{title}</p>
+          <p className="scanner-fullscreen__hint">
+            {globalThis.BarcodeDetector
+              ? "Acerque el código; al leerlo se cierra la cámara."
+              : "Buena luz y código nítido; al detectarlo se cierra la cámara."}
+          </p>
+          {running && (
+            <p className="scanner-fullscreen__status">Escaneando…</p>
+          )}
+          {error && <div className="scanner-fullscreen__error">{error}</div>}
         </div>
-      )}
-      {error && <div className="error">{error}</div>}
+      </div>
     </div>
   );
+
+  return createPortal(overlay, document.body);
 }
