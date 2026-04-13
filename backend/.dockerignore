@@ -1,0 +1,13 @@
+__pycache__
+*.py[cod]
+*$py.class
+.git
+.gitignore
+.venv
+venv
+*.sqlite3
+db.sqlite3
+.env
+*.md
+.pytest_cache
+.mypy_cache
