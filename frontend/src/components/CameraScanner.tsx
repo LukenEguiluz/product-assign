@@ -1,7 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BrowserMultiFormatReader } from "@zxing/browser";
-import { DecodeHintType, NotFoundException } from "@zxing/library";
+import {
+  BarcodeFormat,
+  DecodeHintType,
+  NotFoundException,
+} from "@zxing/library";
 
 type ScanProfile = "barcode" | "general";
 
@@ -20,21 +24,21 @@ function normalizeScannedText(raw: string): string {
     .trim();
 }
 
-/** Formatos que suele soportar BarcodeDetector en Chromium (nombres en kebab-case). */
+/**
+ * Formatos nativos (kebab-case): menos formatos = menos trabajo por frame y lectura más rápida.
+ * Se amplía solo lo habitual en inventario / GS1.
+ */
 const NATIVE_FORMATS_BARCODE = [
-  "code_128",
-  "code_39",
-  "code_93",
-  "codabar",
   "ean_13",
   "ean_8",
-  "itf",
   "upc_a",
   "upc_e",
-  "qr_code",
+  "code_128",
+  "code_39",
+  "itf",
   "data_matrix",
+  "qr_code",
   "pdf417",
-  "aztec",
 ] as const;
 
 const NATIVE_FORMATS_GENERAL = [
@@ -42,15 +46,36 @@ const NATIVE_FORMATS_GENERAL = [
   "data_matrix",
   "code_128",
   "code_39",
-  "pdf417",
-  "aztec",
   "ean_13",
   "ean_8",
-  "itf",
-  "upc_a",
-  "upc_e",
-  "codabar",
+  "pdf417",
+  "aztec",
 ] as const;
+
+/** Formatos ZXing por perfil (acelera mucho frente a “todos los formatos”). */
+const ZXING_FORMATS_BARCODE: BarcodeFormat[] = [
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.UPC_A,
+  BarcodeFormat.UPC_E,
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.ITF,
+  BarcodeFormat.DATA_MATRIX,
+  BarcodeFormat.QR_CODE,
+  BarcodeFormat.PDF_417,
+];
+
+const ZXING_FORMATS_GENERAL: BarcodeFormat[] = [
+  BarcodeFormat.QR_CODE,
+  BarcodeFormat.DATA_MATRIX,
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.PDF_417,
+  BarcodeFormat.AZTEC,
+];
 
 /** Prioriza cámara trasera por etiqueta (tras permiso suelen venir nombres). */
 function pickRearVideoTrackConstraints(
@@ -82,9 +107,10 @@ function pickRearVideoTrackConstraints(
 }
 
 async function acquireRearCameraStream(): Promise<MediaStream> {
+  /* 720p–1080p suele ser el mejor equilibrio velocidad/precisión en móvil. */
   const videoBase: MediaTrackConstraints = {
-    width: { ideal: 1920, max: 3840 },
-    height: { ideal: 1080, max: 2160 },
+    width: { ideal: 1280, max: 1920 },
+    height: { ideal: 720, max: 1080 },
     frameRate: { ideal: 30, max: 30 },
   };
 
@@ -145,6 +171,26 @@ async function acquireRearCameraStream(): Promise<MediaStream> {
       });
     }
   }
+}
+
+/** Bitmap más pequeño: BarcodeDetector suele ir más rápido que sobre el vídeo a resolución completa. */
+function drawVideoFrameForScan(
+  video: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  maxWidth: number,
+): void {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  if (vw < 8 || vh < 8) return;
+  const scale = Math.min(1, maxWidth / vw);
+  const tw = Math.max(1, Math.floor(vw * scale));
+  const th = Math.max(1, Math.floor(vh * scale));
+  if (canvas.width !== tw || canvas.height !== th) {
+    canvas.width = tw;
+    canvas.height = th;
+  }
+  ctx.drawImage(video, 0, 0, tw, th);
 }
 
 async function waitVideoReady(video: HTMLVideoElement): Promise<void> {
@@ -294,7 +340,18 @@ export default function CameraScanner({
 
         const detector = await createNativeDetector(scanProfile);
         if (detector && !cancelled) {
-          const intervalMs = scanProfile === "barcode" ? 80 : 120;
+          const scanCanvas = document.createElement("canvas");
+          const scanCtx = scanCanvas.getContext("2d", {
+            alpha: false,
+            willReadFrequently: true,
+          });
+          if (!scanCtx) {
+            releaseStream();
+            setError("No se pudo preparar el escáner (canvas).");
+            return;
+          }
+          const maxBitmapW = scanProfile === "barcode" ? 1280 : 960;
+          const intervalMs = scanProfile === "barcode" ? 33 : 45;
           let busy = false;
           const timer = window.setInterval(() => {
             if (cancelled || busy) return;
@@ -302,7 +359,9 @@ export default function CameraScanner({
             busy = true;
             void (async () => {
               try {
-                const codes = await detector.detect(video);
+                drawVideoFrameForScan(video, scanCanvas, scanCtx, maxBitmapW);
+                if (scanCanvas.width < 4 || scanCanvas.height < 4) return;
+                const codes = await detector.detect(scanCanvas);
                 if (cancelled || !codes?.length) return;
                 const text = normalizeScannedText(codes[0].rawValue);
                 if (!text) return;
@@ -328,11 +387,16 @@ export default function CameraScanner({
         }
 
         const hints = new Map<DecodeHintType, unknown>();
-        hints.set(DecodeHintType.TRY_HARDER, true);
+        hints.set(
+          DecodeHintType.POSSIBLE_FORMATS,
+          scanProfile === "barcode"
+            ? ZXING_FORMATS_BARCODE
+            : ZXING_FORMATS_GENERAL,
+        );
 
         const reader = new BrowserMultiFormatReader(hints, {
-          delayBetweenScanAttempts: 40,
-          delayBetweenScanSuccess: 350,
+          delayBetweenScanAttempts: 16,
+          delayBetweenScanSuccess: 180,
         });
 
         const controls = await reader.decodeFromStream(
