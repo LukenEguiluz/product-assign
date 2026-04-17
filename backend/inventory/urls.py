@@ -26,6 +26,11 @@ urlpatterns = [
     path("auth/me/", views.MeView.as_view(), name="auth_me"),
     path("auth/users/", views.CreateAppUserView.as_view(), name="create_app_user"),
     path("auth/users/list/", views.UserListView.as_view(), name="list_app_users"),
+    path(
+        "auth/users/<int:user_id>/password/",
+        views.SetAppUserPasswordView.as_view(),
+        name="set_app_user_password",
+    ),
     path("catalog/lookup/<str:gtin>/", views.CatalogLookupView.as_view(), name="catalog_lookup"),
     path("", include(router.urls)),
 ]

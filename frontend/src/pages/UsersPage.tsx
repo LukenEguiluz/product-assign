@@ -3,6 +3,7 @@ import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import * as api from "@/api/client";
 import type { User } from "@/api/types";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 export default function UsersPage() {
   const { user } = useAuth();
@@ -13,6 +14,12 @@ export default function UsersPage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  const [pwTarget, setPwTarget] = useState<User | null>(null);
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwErr, setPwErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.can_create_app_users) return;
@@ -61,6 +68,9 @@ export default function UsersPage() {
       <p className="muted" style={{ marginBottom: "1rem" }}>
         Solo los perfiles con permiso «Puede crear usuarios de la aplicación» (asignado por el
         superusuario en el admin de Django) ven esta pantalla.
+        {user?.is_superuser ? (
+          <> Como superusuario puede restablecer contraseñas desde la lista inferior.</>
+        ) : null}
       </p>
 
       <form className="card stack" onSubmit={onCreate}>
@@ -103,7 +113,31 @@ export default function UsersPage() {
         <div className="hide-md-up">
           {list.map((u) => (
             <div key={u.id} className="user-card">
-              <strong>{u.username}</strong>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "baseline",
+                  justifyContent: "space-between",
+                  gap: "0.5rem",
+                }}
+              >
+                <strong>{u.username}</strong>
+                {user?.is_superuser ? (
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--secondary"
+                    onClick={() => {
+                      setPwErr(null);
+                      setNewPw("");
+                      setConfirmPw("");
+                      setPwTarget(u);
+                    }}
+                  >
+                    Cambiar contraseña
+                  </button>
+                ) : null}
+              </div>
               <span className="muted">
                 {u.email || "Sin correo"} · {u.is_active ? "Activo" : "Inactivo"}
               </span>
@@ -117,6 +151,7 @@ export default function UsersPage() {
                 <th>Usuario</th>
                 <th>Correo</th>
                 <th>Activo</th>
+                {user?.is_superuser ? <th>Acciones</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -125,12 +160,96 @@ export default function UsersPage() {
                   <td>{u.username}</td>
                   <td>{u.email || "—"}</td>
                   <td>{u.is_active ? "Sí" : "No"}</td>
+                  {user?.is_superuser ? (
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn--sm btn--secondary"
+                        onClick={() => {
+                          setPwErr(null);
+                          setNewPw("");
+                          setConfirmPw("");
+                          setPwTarget(u);
+                        }}
+                      >
+                        Cambiar contraseña
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pwTarget !== null}
+        title={pwTarget ? `Nueva contraseña: ${pwTarget.username}` : ""}
+        confirmLabel="Guardar contraseña"
+        cancelLabel="Cancelar"
+        busy={pwBusy}
+        onCancel={() => {
+          if (pwBusy) return;
+          setPwTarget(null);
+          setPwErr(null);
+          setNewPw("");
+          setConfirmPw("");
+        }}
+        onConfirm={async () => {
+          if (!pwTarget) return;
+          setPwErr(null);
+          if (newPw.length < 8) {
+            setPwErr("La contraseña debe tener al menos 8 caracteres.");
+            return;
+          }
+          if (newPw !== confirmPw) {
+            setPwErr("Las contraseñas no coinciden.");
+            return;
+          }
+          setPwBusy(true);
+          try {
+            await api.setAppUserPassword(pwTarget.id, {
+              password: newPw,
+              password_confirm: confirmPw,
+            });
+            setMsg(`Contraseña actualizada para «${pwTarget.username}».`);
+            setPwTarget(null);
+            setNewPw("");
+            setConfirmPw("");
+          } catch {
+            setPwErr("No se pudo guardar la contraseña.");
+          } finally {
+            setPwBusy(false);
+          }
+        }}
+      >
+        <div className="stack" style={{ gap: "0.75rem" }}>
+          <label>
+            Nueva contraseña
+            <input
+              type="password"
+              value={newPw}
+              onChange={(e) => setNewPw(e.target.value)}
+              autoComplete="new-password"
+              minLength={8}
+              disabled={pwBusy}
+            />
+          </label>
+          <label>
+            Confirmar contraseña
+            <input
+              type="password"
+              value={confirmPw}
+              onChange={(e) => setConfirmPw(e.target.value)}
+              autoComplete="new-password"
+              minLength={8}
+              disabled={pwBusy}
+            />
+          </label>
+          {pwErr ? <div className="error">{pwErr}</div> : null}
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }

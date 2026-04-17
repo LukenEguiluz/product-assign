@@ -6,6 +6,7 @@ export type User = {
   email: string;
   is_active: boolean;
   can_create_app_users?: boolean;
+  is_superuser?: boolean;
 };
 
 export type Client = {

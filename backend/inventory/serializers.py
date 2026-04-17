@@ -28,6 +28,18 @@ class CreateAppUserSerializer(serializers.ModelSerializer):
         return user
 
 
+class SetAppUserPasswordSerializer(serializers.Serializer):
+    password = serializers.CharField(write_only=True, min_length=8)
+    password_confirm = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password_confirm"]:
+            raise serializers.ValidationError(
+                {"password_confirm": "Las contraseñas no coinciden."}
+            )
+        return attrs
+
+
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client

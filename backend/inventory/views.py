@@ -17,7 +17,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .catalog_import import build_template_workbook, parse_catalog_workbook
 from .models import Cabinet, CatalogItem, Client, InventorySession, SessionScan
-from .permissions import CanCreateAppUsers
+from .permissions import CanCreateAppUsers, IsSuperuser
 from .serializers import (
     AddScanSerializer,
     CabinetSerializer,
@@ -28,6 +28,7 @@ from .serializers import (
     InventorySessionSerializer,
     SessionScanSerializer,
     SessionScanUpdateSerializer,
+    SetAppUserPasswordSerializer,
     UserSerializer,
 )
 
@@ -42,6 +43,7 @@ class MeView(APIView):
         data["can_create_app_users"] = request.user.has_perm(
             "inventory.can_create_app_users"
         )
+        data["is_superuser"] = bool(request.user.is_superuser)
         return Response(data)
 
 
@@ -54,6 +56,18 @@ class UserListView(generics.ListAPIView):
     queryset = User.objects.order_by("username")
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated, CanCreateAppUsers]
+
+
+class SetAppUserPasswordView(APIView):
+    permission_classes = [IsAuthenticated, IsSuperuser]
+
+    def post(self, request, user_id: int):
+        target = get_object_or_404(User.objects.all(), pk=user_id)
+        ser = SetAppUserPasswordSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        target.set_password(ser.validated_data["password"])
+        target.save(update_fields=["password"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ClientViewSet(viewsets.ModelViewSet):

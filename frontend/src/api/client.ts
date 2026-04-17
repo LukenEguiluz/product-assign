@@ -94,6 +94,13 @@ export async function listAppUsers(): Promise<User[]> {
   return data;
 }
 
+export async function setAppUserPassword(
+  userId: number,
+  payload: { password: string; password_confirm: string },
+) {
+  await api.post(`/auth/users/${userId}/password/`, payload);
+}
+
 export async function listClients(): Promise<Client[]> {
   const { data } = await api.get<Client[]>("/clients/");
   return data;
