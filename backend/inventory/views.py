@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .catalog_import import build_template_workbook, parse_catalog_workbook
+from .min_max_calc import build_comparativa_min_max_xlsx
 from .models import Cabinet, CatalogItem, Client, InventorySession, SessionScan
 from .permissions import CanCreateAppUsers, IsSuperuser
 from .serializers import (
@@ -435,3 +436,129 @@ class CatalogLookupView(APIView):
                 "item": CatalogItemSerializer(item).data,
             }
         )
+
+
+class MinMaxStockView(APIView):
+    """
+    POST multipart/form-data
+    - consumo: archivo .xlsx de consumos
+    - inventario: archivo .xlsx de inventario
+    - client: id del cliente registrado (para nombre del archivo y parámetros del documento)
+
+    Opcionales (form fields):
+    - meses (int), fecha_referencia (YYYY-MM-DD), lead_time_dias, periodo_reabastecimiento_dias, z_score
+    - hoja_consumo, hoja_inventario (nombre o índice)
+    - col_producto, col_consumo, col_fecha, col_descripcion, col_documento
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        consumo = request.FILES.get("consumo")
+        inventario = request.FILES.get("inventario")
+        client_raw = request.data.get("client")
+        if client_raw in (None, ""):
+            return Response(
+                {"detail": "Indique el cliente dirigido (campo «client»: id numérico del cliente)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            client_pk = int(str(client_raw))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "El campo «client» debe ser un identificador numérico válido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        client_obj = get_object_or_404(Client, pk=client_pk)
+
+        gen_date = timezone.localdate()
+        base_name = slugify(f"{client_obj.name} {gen_date.isoformat()}") or ""
+        if not base_name:
+            base_name = slugify(f"cliente-{client_obj.pk}-{gen_date.isoformat()}") or (
+                f"cliente-{client_obj.pk}-min-max-{gen_date.isoformat()}"
+            )
+
+        if not consumo or not inventario:
+            return Response(
+                {
+                    "detail": "Adjunte ambos archivos en multipart: «consumo» e «inventario».",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        for f in (consumo, inventario):
+            if not (f.name or "").lower().endswith(".xlsx"):
+                return Response(
+                    {"detail": "Solo se admite formato .xlsx."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        consumo_bytes = b"".join(consumo.chunks())
+        inventario_bytes = b"".join(inventario.chunks())
+
+        def _as_int(key: str, default: int):
+            raw = request.data.get(key, None)
+            if raw in (None, ""):
+                return default
+            try:
+                return int(str(raw))
+            except (TypeError, ValueError):
+                raise ValueError(f"Parámetro inválido: {key}")
+
+        def _as_float(key: str, default: float):
+            raw = request.data.get(key, None)
+            if raw in (None, ""):
+                return default
+            try:
+                return float(str(raw))
+            except (TypeError, ValueError):
+                raise ValueError(f"Parámetro inválido: {key}")
+
+        def _as_sheet(key: str):
+            raw = request.data.get(key, None)
+            if raw in (None, ""):
+                return None
+            s = str(raw).strip()
+            if s.isdigit():
+                return int(s)
+            return s
+
+        try:
+            out = build_comparativa_min_max_xlsx(
+                consumo_xlsx=consumo_bytes,
+                inventario_xlsx=inventario_bytes,
+                hoja_consumo=_as_sheet("hoja_consumo"),
+                hoja_inventario=_as_sheet("hoja_inventario"),
+                meses=_as_int("meses", 6),
+                fecha_referencia=(request.data.get("fecha_referencia") or None),
+                lead_time_dias=_as_int("lead_time_dias", 7),
+                periodo_reabastecimiento_dias=_as_int(
+                    "periodo_reabastecimiento_dias", 7
+                ),
+                z_score=_as_float("z_score", 1.65),
+                col_producto=(request.data.get("col_producto") or None),
+                col_consumo=(request.data.get("col_consumo") or None),
+                col_fecha=(request.data.get("col_fecha") or None),
+                col_descripcion=(request.data.get("col_descripcion") or None),
+                col_documento=(request.data.get("col_documento") or None),
+                cliente_nombre=client_obj.name,
+                cliente_numero=client_obj.client_number,
+                fecha_generacion_documento=gen_date.isoformat(),
+            )
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response(
+                {"detail": "No se pudo procesar los archivos. Revise el formato/columnas."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        fname = f"{base_name}.xlsx"
+        if len(fname) > 200:
+            fname = f"{base_name[:160]}.xlsx"
+
+        response = HttpResponse(
+            out,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{fname}"'
+        return response

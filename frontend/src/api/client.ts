@@ -319,3 +319,39 @@ export async function downloadSessionExcel(id: number, filename?: string) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+export async function downloadMinMaxExcel(payload: {
+  clientId: number;
+  consumo: File;
+  inventario: File;
+  meses?: string;
+  fecha_referencia?: string;
+  lead_time_dias?: string;
+  periodo_reabastecimiento_dias?: string;
+  z_score?: string;
+}) {
+  const fd = new FormData();
+  fd.append("client", String(payload.clientId));
+  fd.append("consumo", payload.consumo);
+  fd.append("inventario", payload.inventario);
+  if (payload.meses) fd.append("meses", payload.meses);
+  if (payload.fecha_referencia) fd.append("fecha_referencia", payload.fecha_referencia);
+  if (payload.lead_time_dias) fd.append("lead_time_dias", payload.lead_time_dias);
+  if (payload.periodo_reabastecimiento_dias) {
+    fd.append("periodo_reabastecimiento_dias", payload.periodo_reabastecimiento_dias);
+  }
+  if (payload.z_score) fd.append("z_score", payload.z_score);
+
+  const res = await api.post("/min-max/", fd, { responseType: "blob" });
+  const cd =
+    res.headers["content-disposition"] ??
+    res.headers["Content-Disposition"] ??
+    undefined;
+  const fromServer = parseFilenameFromContentDisposition(cd);
+  const url = URL.createObjectURL(res.data);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fromServer ?? "comparativa_inventario.xlsx";
+  a.click();
+  URL.revokeObjectURL(url);
+}

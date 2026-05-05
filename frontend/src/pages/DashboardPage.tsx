@@ -65,6 +65,12 @@ export default function DashboardPage() {
           Asocie el código de barras (GTIN / GUDID) con el RFID hexadecimal (24
           caracteres).
         </span>
+        <Link to="/min-max" className="btn btn--secondary btn--block">
+          Stock mínimo / máximo
+        </Link>
+        <span className="muted">
+          Genere un Excel de mínimos/máximos a partir de consumos + inventario.
+        </span>
         <Link to="/catalogo" className="btn btn--secondary btn--block">
           Catálogo de productos
         </Link>

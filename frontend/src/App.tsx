@@ -8,6 +8,7 @@ import SessionScanPage from "@/pages/SessionScanPage";
 import UsersPage from "@/pages/UsersPage";
 import ClientsPage from "@/pages/ClientsPage";
 import CatalogPage from "@/pages/CatalogPage";
+import MinMaxPage from "@/pages/MinMaxPage";
 
 function Private({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -65,6 +66,14 @@ export default function App() {
         element={
           <Private>
             <CatalogPage />
+          </Private>
+        }
+      />
+      <Route
+        path="/min-max"
+        element={
+          <Private>
+            <MinMaxPage />
           </Private>
         }
       />

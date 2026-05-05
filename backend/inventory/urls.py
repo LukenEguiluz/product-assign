@@ -11,6 +11,7 @@ router.register(r"catalog", views.CatalogItemViewSet, basename="catalog")
 router.register(r"sessions", views.InventorySessionViewSet, basename="session")
 
 urlpatterns = [
+    path("min-max/", views.MinMaxStockView.as_view(), name="min_max_stock"),
     path(
         "sessions/<int:session_pk>/scans/<int:pk>/restore/",
         views.SessionScanRestoreView.as_view(),
